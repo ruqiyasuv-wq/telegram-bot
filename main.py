@@ -1,216 +1,164 @@
 import telebot
-from telebot import types
 import json
 import os
-from datetime import datetime
-import re
-from rapidfuzz import process
 
-# ===========================
-# CONFIG
 TOKEN = "8459082198:AAFtvTHSbToKvyx-6Q1ZcCW0D943TH_Dw4Q"
 OWNER_ID = 6736873215
-RULES_FILE = "rules.json"
-USERS_FILE = "users.json"
+MIN_SUMMA = 4000
+
+bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
+
 PRODUCTS_FILE = "products.json"
-LOG_FILE = "bot.log"
-MIN_ORDER_SUM = 4000  # minimal summa belgilash
-# ===========================
-
-bot = telebot.TeleBot(TOKEN)
-
-# ===========================
-# Load / Save JSON
-def load_json(file, default):
-    if os.path.exists(file):
-        with open(file, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return default
-
-def save_json(file, data):
-    with open(file, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-# ===========================
-
-rules = load_json(RULES_FILE, {})
-users = load_json(USERS_FILE, {})
-products = load_json(PRODUCTS_FILE, {
-    "Suv 5L": {"price": 4000, "image": ""},
-    "Suv 10L": {"price": 7000, "image": ""}
-})
+USERS_FILE = "users.json"
 
 user_state = {}
+carts = {}
 
-# Logging
-def log(msg):
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(f"{datetime.now()} - {msg}\n")
+def load_json(file, default):
+    if not os.path.exists(file):
+        with open(file, "w") as f:
+            json.dump(default, f)
+    with open(file, "r") as f:
+        return json.load(f)
 
-# ===========================
-def is_owner(message):
-    return message.from_user.id == OWNER_ID
+def save_json(file, data):
+    with open(file, "w") as f:
+        json.dump(data, f, indent=2)
 
-def save_user(message):
-    user_id = str(message.from_user.id)
-    if user_id not in users:
-        users[user_id] = {
-            "username": message.from_user.username or "",
-            "first_name": message.from_user.first_name or "",
-            "last_name": message.from_user.last_name or "",
-            "messages": 0
-        }
-    users[user_id]["messages"] += 1
+products = load_json(PRODUCTS_FILE, {})
+users = load_json(USERS_FILE, {})
+
+def is_owner(m):
+    return m.from_user.id == OWNER_ID
+
+def save_user(uid):
+    users[str(uid)] = True
     save_json(USERS_FILE, users)
 
-# ===========================
-# Admin Qoida boshqaruvi
-@bot.message_handler(func=lambda m: m.text.lower() == "add" and is_owner(m))
-def add_start(message):
-    user_state[message.chat.id] = {"step": "trigger"}
-    bot.send_message(message.chat.id, "📝 So‘z yozing:")
+@bot.message_handler(commands=["start"])
+def start(m):
+    save_user(m.from_user.id)
+    kb = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add("🛒 Buyurtma berish")
+    bot.send_message(m.chat.id, "Assalomu alaykum! Buyurtma berish uchun tugmani bosing 👇", reply_markup=kb)
 
-@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "trigger")
-def add_trigger(message):
-    user_state[message.chat.id]["trigger"] = message.text.lower()
-    user_state[message.chat.id]["step"] = "reply"
-    bot.send_message(message.chat.id, "💬 Javob yozing:")
+# ================= ADMIN: ADD PRODUCT =================
+@bot.message_handler(func=lambda m: m.text == "addproduct" and is_owner(m))
+def add_product_start(m):
+    user_state[m.chat.id] = {"step": "photo"}
+    bot.send_message(m.chat.id, "📸 Mahsulot rasmini yuboring")
 
-@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "reply")
-def add_reply(message):
-    trigger = user_state[message.chat.id]["trigger"]
-    rules[trigger] = message.text
-    save_json(RULES_FILE, rules)
-    user_state.pop(message.chat.id)
-    bot.send_message(message.chat.id, f"✅ Qo‘shildi:\n{trigger}")
-
-@bot.message_handler(func=lambda m: m.text.lower() == "list" and is_owner(m))
-def list_rules(message):
-    if not rules:
-        bot.send_message(message.chat.id, "📭 Hozircha qoida yo‘q")
+@bot.message_handler(content_types=["photo"])
+def get_photo(m):
+    st = user_state.get(m.chat.id)
+    if not st or st.get("step") != "photo":
         return
-    msg = "📋 So‘zlar ro‘yxati:\n"
-    for k in rules:
-        msg += f"- {k}\n"
-    bot.send_message(message.chat.id, msg)
+    st["photo"] = m.photo[-1].file_id
+    st["step"] = "name"
+    bot.send_message(m.chat.id, "📝 Mahsulot nomini yozing")
 
-@bot.message_handler(func=lambda m: m.text.lower() == "del" and is_owner(m))
-def del_start(message):
-    user_state[message.chat.id] = {"step": "delete"}
-    bot.send_message(message.chat.id, "❌ Qaysi so‘zni o‘chiramiz?")
+@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "name")
+def get_name(m):
+    user_state[m.chat.id]["name"] = m.text
+    user_state[m.chat.id]["step"] = "price"
+    bot.send_message(m.chat.id, "💰 Narxini yozing (faqat son)")
 
-@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "delete")
-def delete_rule(message):
-    key = message.text.lower()
-    if key in rules:
-        del rules[key]
-        save_json(RULES_FILE, rules)
-        bot.send_message(message.chat.id, f"🗑 O‘chirildi: {key}")
-    else:
-        bot.send_message(message.chat.id, "❌ Bunday so‘z yo‘q")
-    user_state.pop(message.chat.id)
-
-# ===========================
-# Broadcast
-@bot.message_handler(func=lambda m: m.text.lower() == "broadcast" and is_owner(m))
-def broadcast_start(message):
-    user_state[message.chat.id] = {"step": "broadcast"}
-    bot.send_message(message.chat.id, "📢 Jo‘natiladigan xabar matnini kiriting:")
-
-@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "broadcast")
-def broadcast_send(message):
-    text = message.text
-    count = 0
-    for uid in users:
-        try:
-            bot.send_message(uid, text)
-            count += 1
-        except Exception as e:
-            log(f"Broadcast xato {uid}: {e}")
-    bot.send_message(message.chat.id, f"✅ Xabar {count} foydalanuvchiga yuborildi")
-    user_state.pop(message.chat.id)
-
-# ===========================
-# Statistika
-@bot.message_handler(func=lambda m: m.text.lower() == "stats" and is_owner(m))
-def show_stats(message):
-    total_users = len(users)
-    total_messages = sum(u["messages"] for u in users.values())
-    msg = f"📊 Statistika:\n- Foydalanuvchilar: {total_users}\n- Umumiy xabarlar: {total_messages}\n- Triggers: {len(rules)}"
-    bot.send_message(message.chat.id, msg)
-
-# ===========================
-# Zakaz / Mahsulotlar (inline button)
-@bot.message_handler(func=lambda m: m.text.lower() == "buyurtma berish")
-def start_order(message):
-    save_user(message)
-    markup = types.InlineKeyboardMarkup()
-    for product, info in products.items():
-        button_text = f"{product} - {info['price']} so'm"
-        markup.add(types.InlineKeyboardButton(button_text, callback_data=f"buy_{product}"))
-    bot.send_message(message.chat.id, "🛒 Mahsulotni tanlang:", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
-def handle_order(call):
-    product = call.data[4:]
-    user_state[call.message.chat.id] = {"step": "quantity", "product": product}
-    bot.send_message(call.message.chat.id, f"📦 {product} tanlandi.\nNechta buyurtma qilmoqchisiz?")
-
-@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "quantity")
-def ask_quantity(message):
+@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "price")
+def get_price(m):
     try:
-        quantity = int(message.text)
-        product = user_state[message.chat.id]["product"]
-        total = quantity * products[product]["price"]
-        if total < MIN_ORDER_SUM:
-            bot.send_message(message.chat.id, f"❌ Sizning buyurtmangiz miqdori kam! Minimal summa {MIN_ORDER_SUM} so‘m")
-            return
-        user_state[message.chat.id]["quantity"] = quantity
-        user_state[message.chat.id]["step"] = "phone"
-        bot.send_message(message.chat.id, "📞 Telefon raqamingizni kiriting:")
+        price = int(m.text)
     except:
-        bot.send_message(message.chat.id, "❌ Iltimos, son kiriting.")
+        bot.send_message(m.chat.id, "❌ Narx son bo‘lishi kerak")
+        return
+    st = user_state.pop(m.chat.id)
+    products[st["name"]] = {
+        "price": price,
+        "photo": st["photo"]
+    }
+    save_json(PRODUCTS_FILE, products)
+    bot.send_message(m.chat.id, f"✅ Mahsulot qo‘shildi:\n<b>{st['name']}</b>")
+
+# ================= BUY ORDER =================
+@bot.message_handler(func=lambda m: m.text == "🛒 Buyurtma berish")
+def order(m):
+    if m.chat.type != "private":
+        return
+    if not products:
+        bot.send_message(m.chat.id, "❌ Mahsulotlar yo‘q")
+        return
+    carts[m.chat.id] = {"product": None, "count": 0}
+    show_product(m.chat.id, list(products.keys())[0])
+
+def show_product(chat_id, name):
+    prod = products[name]
+    cart = carts[chat_id]
+    total = cart["count"] * prod["price"]
+    cap = (
+        f"<b>{name}</b>\n"
+        f"Narxi: {prod['price']} so‘m\n"
+        f"Tanlangan: {cart['count']} dona\n"
+        f"Jami: {total} so‘m"
+    )
+    kb = telebot.types.InlineKeyboardMarkup()
+    kb.row(
+        telebot.types.InlineKeyboardButton("➕", callback_data="plus"),
+        telebot.types.InlineKeyboardButton("➖", callback_data="minus")
+    )
+    kb.add(telebot.types.InlineKeyboardButton("🧹 Tozalash", callback_data="clear"))
+    kb.add(telebot.types.InlineKeyboardButton("✅ Buyurtma berish", callback_data="done"))
+    cart["product"] = name
+    bot.send_photo(chat_id, prod["photo"], caption=cap, reply_markup=kb)
+
+@bot.callback_query_handler(func=lambda c: True)
+def callbacks(c):
+    cart = carts.get(c.message.chat.id)
+    if not cart:
+        return
+    prod = products[cart["product"]]
+    if c.data == "plus":
+        cart["count"] += 1
+    elif c.data == "minus":
+        cart["count"] = max(0, cart["count"] - 1)
+    elif c.data == "clear":
+        cart["count"] = 0
+    elif c.data == "done":
+        total = cart["count"] * prod["price"]
+        if total < MIN_SUMMA:
+            bot.answer_callback_query(c.id, "❌ Buyurtma miqdori kam", show_alert=True)
+            return
+        user_state[c.message.chat.id] = {"step": "phone"}
+        bot.send_message(c.message.chat.id, "📞 Telefon raqamingizni yozing")
+        return
+    show_product(c.message.chat.id, cart["product"])
 
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "phone")
-def ask_location(message):
-    user_state[message.chat.id]["phone"] = message.text
-    user_state[message.chat.id]["step"] = "location"
-    bot.send_message(message.chat.id, "📍 Qaysi viloyat va qaysi manzilga yetkazilsin?")
+def phone(m):
+    user_state[m.chat.id]["phone"] = m.text
+    user_state[m.chat.id]["step"] = "region"
+    bot.send_message(m.chat.id, "📍 Viloyatni yozing")
 
-@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "location")
-def finish_order(message):
-    data = user_state[message.chat.id]
-    product = data["product"]
-    quantity = data["quantity"]
-    phone = data["phone"]
-    location = message.text
-    # Adminga xabar
-    order_msg = (
-        f"✅ Yangi zakaz!\n"
-        f"Foydalanuvchi: @{message.from_user.username}\n"
-        f"Mahsulot: {product}\n"
-        f"Soni: {quantity}\n"
-        f"Telefon: {phone}\n"
-        f"Manzil: {location}"
+@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "region")
+def region(m):
+    user_state[m.chat.id]["region"] = m.text
+    user_state[m.chat.id]["step"] = "address"
+    bot.send_message(m.chat.id, "🏠 Manzilni yozing")
+
+@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "address")
+def finish(m):
+    st = user_state.pop(m.chat.id)
+    cart = carts.pop(m.chat.id)
+    prod = products[cart["product"]]
+    total = cart["count"] * prod["price"]
+
+    msg = (
+        "🆕 <b>Yangi buyurtma</b>\n\n"
+        f"📦 Mahsulot: {cart['product']}\n"
+        f"🔢 Soni: {cart['count']}\n"
+        f"💰 Jami: {total} so‘m\n\n"
+        f"📞 Telefon: {st['phone']}\n"
+        f"📍 Manzil: {st['region']} – {m.text}"
     )
-    bot.send_message(OWNER_ID, order_msg)
-    bot.send_message(message.chat.id, "✅ Buyurtmangiz qabul qilindi! Tez orada siz bilan bog‘lanamiz.")
-    user_state.pop(message.chat.id)
+    bot.send_message(OWNER_ID, msg)
+    bot.send_message(m.chat.id, "✅ Buyurtmangiz qabul qilindi. Rahmat!")
 
-# ===========================
-# Guruh va shaxsiy chat javob
-@bot.message_handler(content_types=['text'])
-def handle_text(message):
-    save_user(message)
-    text = message.text.lower()
-    for trigger, reply in rules.items():
-        if re.search(trigger, text, re.IGNORECASE):
-            bot.reply_to(message, reply)
-            break
-        else:
-            match, score = process.extractOne(text, [trigger])
-            if score > 80:
-                bot.reply_to(message, reply)
-                break
-
-# ===========================
-bot.infinity_polling() 
+bot.infinity_polling()
