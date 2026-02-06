@@ -1,26 +1,20 @@
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import json
 import os
 
 TOKEN = "8459082198:AAFtvTHSbToKvyx-6Q1ZcCW0D943TH_Dw4Q"
-ADMIN_ID = 6736873215
-
-DATA_FILE = "data.json"
-IMAGE_FILE_ID = None  # bitta rasm file_id sini keyin admin yuboradi
+OWNER_ID = 6736873215  # <-- O'Z TELEGRAM ID'ingiz
 
 bot = telebot.TeleBot(TOKEN)
 
-# -------------------- SAQLASH --------------------
+DATA_FILE = "data.json"
+
+# ------------------- MA'LUMOTLARNI SAQLASH -------------------
 def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
             return json.load(f)
-    return {
-        "products": {},
-        "users": [],
-        "min_sum": 50000
-    }
+    return {"rules": {}, "users": [], "groups": []}
 
 def save_data():
     with open(DATA_FILE, "w") as f:
@@ -28,152 +22,134 @@ def save_data():
 
 data = load_data()
 
-# -------------------- YORDAMCHI --------------------
-def is_admin(uid):
-    return uid == ADMIN_ID
+# ------------------- ADMIN TEKSHIRUV -------------------
+def is_owner(message):
+    return message.from_user.id == OWNER_ID
 
-def add_user(uid):
+# ------------------- ADD SO'Z -------------------
+@bot.message_handler(func=lambda m: m.text == "add" and is_owner(m))
+def add_start(message):
+    user_state[message.chat.id] = {"step": "trigger"}
+    bot.send_message(message.chat.id, "📝 So‘z yozing:")
+
+@bot.message_handler(func=lambda m: user_state.get(message.chat.id, {}).get("step") == "trigger")
+def add_trigger(message):
+    user_state[message.chat.id]["trigger"] = message.text.lower()
+    user_state[message.chat.id]["step"] = "reply"
+    bot.send_message(message.chat.id, "💬 Javob yozing:")
+
+@bot.message_handler(func=lambda m: user_state.get(message.chat.id, {}).get("step") == "reply")
+def add_reply(message):
+    trigger = user_state[message.chat.id]["trigger"]
+    data["rules"][trigger] = message.text
+    save_data()
+    user_state.pop(message.chat.id)
+    bot.send_message(message.chat.id, f"✅ Qo‘shildi:\n{trigger}")
+
+# ------------------- LIST -------------------
+@bot.message_handler(func=lambda m: m.text == "list" and is_owner(m))
+def list_rules(message):
+    if not data["rules"]:
+        bot.send_message(message.chat.id, "📭 Hozircha qoida yo‘q")
+        return
+    msg = "📋 So‘zlar ro‘yxati:\n"
+    for k in data["rules"]:
+        msg += f"- {k}\n"
+    bot.send_message(message.chat.id, msg)
+
+# ------------------- DELETE -------------------
+@bot.message_handler(func=lambda m: m.text == "del" and is_owner(m))
+def del_start(message):
+    user_state[message.chat.id] = {"step": "delete"}
+    bot.send_message(message.chat.id, "❌ Qaysi so‘zni o‘chiramiz?")
+
+@bot.message_handler(func=lambda m: user_state.get(message.chat.id, {}).get("step") == "delete")
+def delete_rule(message):
+    key = message.text.lower()
+    if key in data["rules"]:
+        del data["rules"][key]
+        save_data()
+        bot.send_message(message.chat.id, f"🗑 O‘chirildi: {key}")
+    else:
+        bot.send_message(message.chat.id, "❌ Bunday so‘z yo‘q")
+    user_state.pop(message.chat.id)
+
+# ------------------- FOYDALANUVCHI JAVOB -------------------
+@bot.message_handler(content_types=['text'])
+def group_reply(message):
+    # Foydalanuvchi ID / guruh ID saqlash
+    uid = message.from_user.id
+    chat_id = message.chat.id
     if uid not in data["users"]:
         data["users"].append(uid)
         save_data()
+    if message.chat.type in ["group", "supergroup"]:
+        if chat_id not in data["groups"]:
+            data["groups"].append(chat_id)
+            save_data()
 
-# -------------------- START --------------------
+    # Qoida bo‘yicha javob
+    text = message.text.lower()
+    for trigger, reply in data["rules"].items():
+        if trigger in text:
+            bot.reply_to(message, reply)
+            break
+
+# ------------------- START -------------------
 @bot.message_handler(commands=["start"])
 def start(msg):
-    if msg.chat.type != "private":
-        return
-    add_user(msg.from_user.id)
-
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("🛒 Buyurtma berish", callback_data="order"))
-
-    bot.send_message(
-        msg.chat.id,
-        "Assalomu alaykum!\nBuyurtma berish uchun tugmani bosing 👇",
-        reply_markup=kb
-    )
-
-# -------------------- ADMIN: MIN SUMMA --------------------
-@bot.message_handler(commands=["minsum"])
-def set_min_sum(msg):
-    if not is_admin(msg.from_user.id):
-        return
-    try:
-        data["min_sum"] = int(msg.text.split()[1])
+    uid = msg.from_user.id
+    if uid not in data["users"]:
+        data["users"].append(uid)
         save_data()
-        bot.reply_to(msg, f"✅ Minimal summa: {data['min_sum']} so‘m")
-    except:
-        bot.reply_to(msg, "❌ Misol: /minsum 50000")
-
-# -------------------- ADMIN: RASM --------------------
-@bot.message_handler(content_types=["photo"])
-def set_image(msg):
-    global IMAGE_FILE_ID
-    if not is_admin(msg.from_user.id):
-        return
-    IMAGE_FILE_ID = msg.photo[-1].file_id
-    bot.reply_to(msg, "✅ Buyurtma uchun rasm saqlandi")
-
-# -------------------- ADMIN: ADD PRODUCT --------------------
-@bot.message_handler(commands=["add"])
-def add_product(msg):
-    if not is_admin(msg.from_user.id):
-        return
-    bot.reply_to(msg, "📝 Mahsulot nomini yozing:")
-    bot.register_next_step_handler(msg, add_product_name)
-
-def add_product_name(msg):
-    name = msg.text
-    bot.send_message(msg.chat.id, "💰 Narxini yozing:")
-    bot.register_next_step_handler(msg, add_product_price, name)
-
-def add_product_price(msg, name):
-    try:
-        price = int(msg.text)
-        data["products"][name] = price
-        save_data()
-        bot.send_message(msg.chat.id, f"✅ Qo‘shildi:\n{name} — {price} so‘m")
-    except:
-        bot.send_message(msg.chat.id, "❌ Narx faqat son bo‘lsin")
-
-# -------------------- ADMIN: DELETE PRODUCT --------------------
-@bot.message_handler(commands=["del"])
-def delete_product(msg):
-    if not is_admin(msg.from_user.id):
-        return
-
-    kb = InlineKeyboardMarkup()
-    for name in data["products"]:
-        kb.add(InlineKeyboardButton(name, callback_data=f"del:{name}"))
-
-    bot.send_message(msg.chat.id, "🗑 O‘chirish uchun tanlang:", reply_markup=kb)
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith("del:"))
-def del_prod(c):
-    name = c.data.split(":")[1]
-    if name in data["products"]:
-        del data["products"][name]
-        save_data()
-        bot.answer_callback_query(c.id, "❌ O‘chirildi")
-        bot.edit_message_text("✅ Mahsulot o‘chirildi", c.message.chat.id, c.message.message_id)
-
-# -------------------- BUYURTMA --------------------
-user_cart = {}
-
-@bot.callback_query_handler(func=lambda c: c.data == "order")
-def order_menu(c):
-    uid = c.from_user.id
-    user_cart[uid] = {}
-
-    kb = InlineKeyboardMarkup(row_width=1)
-    for name in data["products"]:
-        kb.add(InlineKeyboardButton(name, callback_data=f"add:{name}"))
-
-    kb.add(
-        InlineKeyboardButton("🧹 Tozalash", callback_data="clear"),
-        InlineKeyboardButton("✅ Buyurtma berish", callback_data="confirm")
-    )
-
-    caption = "🛒 Mahsulotni tanlang (bosgan sari ko‘payadi):"
-    if IMAGE_FILE_ID:
-        bot.send_photo(c.message.chat.id, IMAGE_FILE_ID, caption=caption, reply_markup=kb)
+        bot.send_message(uid, "Assalomu alaykum! Siz ro‘yxatdan o‘tdingiz ✅")
     else:
-        bot.send_message(c.message.chat.id, caption, reply_markup=kb)
+        bot.send_message(uid, "Xush kelibsiz! Oldingi sozlamalar saqlangan 🔒")
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("add:"))
-def add_to_cart(c):
-    uid = c.from_user.id
-    name = c.data.split(":")[1]
-    user_cart.setdefault(uid, {})
-    user_cart[uid][name] = user_cart[uid].get(name, 0) + 1
-    bot.answer_callback_query(c.id, f"{name}: {user_cart[uid][name]} ta")
+# ------------------- BROADCAST TEXT -------------------
+def broadcast(message_text):
+    for uid in data["users"]:
+        try:
+            bot.send_message(uid, message_text)
+        except:
+            pass
+    for gid in data["groups"]:
+        try:
+            bot.send_message(gid, message_text)
+        except:
+            pass
 
-@bot.callback_query_handler(func=lambda c: c.data == "clear")
-def clear_cart(c):
-    user_cart[c.from_user.id] = {}
-    bot.answer_callback_query(c.id, "🧹 Tozalandi")
+@bot.message_handler(func=lambda m: m.text.startswith("broadcast ") and is_owner(m))
+def admin_broadcast(msg):
+    text = msg.text.replace("broadcast ", "", 1)
+    broadcast(text)
+    bot.send_message(msg.chat.id, "✅ Hamma foydalanuvchilarga va guruhlarga xabar jo‘natildi")
 
-@bot.callback_query_handler(func=lambda c: c.data == "confirm")
-def confirm_order(c):
-    uid = c.from_user.id
-    cart = user_cart.get(uid, {})
+# ------------------- BROADCAST PHOTO -------------------
+def broadcast_photo(photo_file, caption_text=""):
+    for uid in data["users"]:
+        try:
+            bot.send_photo(uid, photo_file, caption=caption_text)
+        except:
+            pass
+    for gid in data["groups"]:
+        try:
+            bot.send_photo(gid, photo_file, caption=caption_text)
+        except:
+            pass
 
-    total = sum(data["products"][n] * q for n, q in cart.items())
-    if total < data["min_sum"]:
-        bot.answer_callback_query(
-            c.id,
-            f"❌ Buyurtma kam\nMinimal: {data['min_sum']} so‘m",
-            show_alert=True
-        )
+@bot.message_handler(content_types=['photo'])
+def admin_send_photo(msg):
+    if not is_owner(msg):
         return
+    if msg.caption and msg.caption.startswith("broadcast "):
+        caption_text = msg.caption.replace("broadcast ", "", 1)
+        file_id = msg.photo[-1].file_id
+        broadcast_photo(file_id, caption_text)
+        bot.send_message(msg.chat.id, "✅ Hamma foydalanuvchilarga va guruhlarga rasm + xabar jo‘natildi")
 
-    text = "📦 YANGI BUYURTMA:\n\n"
-    for n, q in cart.items():
-        text += f"{n} x {q} = {data['products'][n]*q} so‘m\n"
-    text += f"\n💰 Jami: {total} so‘m\n👤 ID: {uid}"
+# ------------------- USER STATE -------------------
+user_state = {}  # Qoida qo‘shish va o‘chirish jarayoni uchun
 
-    bot.send_message(ADMIN_ID, text)
-    bot.edit_message_text("✅ Buyurtma yuborildi. Rahmat!", c.message.chat.id, c.message.message_id)
-
-# -------------------- RUN --------------------
+# ------------------- RUN -------------------
 bot.infinity_polling()
