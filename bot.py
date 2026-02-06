@@ -9,8 +9,8 @@ from telegram.ext import (
     filters
 )
 
-TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
+TOKEN = os.getenv("8459082198:AAFtvTHSbToKvyx-6Q1ZcCW0D943TH_Dw4Q")
+ADMIN_ID = int(os.getenv("6736873215"))
 
 DATA_FILE = "rules.json"
 
