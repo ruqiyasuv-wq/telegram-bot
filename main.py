@@ -3,12 +3,33 @@ import json
 import os
 
 TOKEN = "8459082198:AAFtvTHSbToKvyx-6Q1ZcCW0D943TH_Dw4Q"
-OWNER_ID = 6736873215
+OWNER_ID = 6736873215  # sening ID'ing
 
 bot = telebot.TeleBot(TOKEN)
-
 DATA_FILE = "data.json"
 user_state = {}  # add/del jarayoni uchun
+
+# ------------------- TRANSLIT -------------------
+latin_to_cyr = {
+    "a": "а","b": "б","d": "д","e": "е","f": "ф","g": "г","h": "ҳ","i": "и",
+    "j": "ж","k": "к","l": "л","m": "м","n": "н","o": "о","p": "п","q": "қ",
+    "r": "р","s": "с","t": "т","u": "у","v": "в","x": "х","y": "й","z": "з",
+    "sh": "ш","ch": "ч","o'":"ў","g'":"ғ"
+}
+
+cyr_to_latin = {v:k for k,v in latin_to_cyr.items()}
+
+def to_cyrillic(text):
+    text = text.lower()
+    for k,v in latin_to_cyr.items():
+        text = text.replace(k,v)
+    return text
+
+def to_latin(text):
+    text = text.lower()
+    for k,v in cyr_to_latin.items():
+        text = text.replace(k,v)
+    return text
 
 # ------------------- MA'LUMOTLARNI SAQLASH -------------------
 def load_data():
@@ -28,10 +49,10 @@ def is_owner(message):
     return message.from_user.id == OWNER_ID
 
 # ------------------- ADD SO'Z -------------------
-@bot.message_handler(func=lambda m: m.text == "add" and is_owner(m))
+@bot.message_handler(func=lambda m: m.text == "/add" and is_owner(m))
 def add_start(message):
     user_state[message.chat.id] = {"step": "trigger"}
-    bot.send_message(message.chat.id, "📝 So‘z yozing:")
+    bot.send_message(message.chat.id, "📝 So‘z yozing (lotin harflarida):")
 
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "trigger")
 def add_trigger(message):
@@ -42,24 +63,25 @@ def add_trigger(message):
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "reply")
 def add_reply(message):
     trigger = user_state[message.chat.id]["trigger"]
-    data["rules"][trigger] = message.text
+    reply = message.text
+    data["rules"][trigger] = reply
     save_data()
     user_state.pop(message.chat.id)
     bot.send_message(message.chat.id, f"✅ Qo‘shildi:\n{trigger}")
 
 # ------------------- LIST -------------------
-@bot.message_handler(func=lambda m: m.text == "list" and is_owner(m))
+@bot.message_handler(func=lambda m: m.text == "/list" and is_owner(m))
 def list_rules(message):
     if not data["rules"]:
         bot.send_message(message.chat.id, "📭 Hozircha qoida yo‘q")
         return
     msg = "📋 So‘zlar ro‘yxati:\n"
-    for k in data["rules"]:
-        msg += f"- {k}\n"
+    for k,v in data["rules"].items():
+        msg += f"{k} → Latin: {v} | Kirill: {to_cyrillic(v)}\n"
     bot.send_message(message.chat.id, msg)
 
 # ------------------- DELETE -------------------
-@bot.message_handler(func=lambda m: m.text == "del" and is_owner(m))
+@bot.message_handler(func=lambda m: m.text == "/del" and is_owner(m))
 def del_start(message):
     user_state[message.chat.id] = {"step": "delete"}
     bot.send_message(message.chat.id, "❌ Qaysi so‘zni o‘chiramiz?")
@@ -81,7 +103,7 @@ def user_reply(message):
     uid = message.from_user.id
     chat_id = message.chat.id
 
-    # Foydalanuvchi va guruh ID saqlash
+    # ID saqlash
     if uid not in data["users"]:
         data["users"].append(uid)
         save_data()
@@ -90,11 +112,16 @@ def user_reply(message):
             data["groups"].append(chat_id)
             save_data()
 
-    # Qoida bo‘yicha javob
     text = message.text.lower()
     for trigger, reply in data["rules"].items():
-        if trigger in text:
-            bot.reply_to(message, reply)
+        # Kirill yoki lotin bilan moslash
+        if trigger in text or to_cyrillic(trigger) in text:
+            if any(c in message.text for c in "абвгдежзийклмнопрстуфхцчшщъыьэюя"):
+                # Kirill xabar → javob kirill
+                bot.reply_to(message, to_cyrillic(reply))
+            else:
+                # Lotin xabar → javob lotin
+                bot.reply_to(message, reply)
             break
 
 # ------------------- START -------------------
@@ -121,9 +148,9 @@ def broadcast(message_text):
         except:
             pass
 
-@bot.message_handler(func=lambda m: m.text.startswith("broadcast ") and is_owner(m))
+@bot.message_handler(func=lambda m: m.text.startswith("/broadcast ") and is_owner(m))
 def admin_broadcast(msg):
-    text = msg.text.replace("broadcast ", "", 1)
+    text = msg.text.replace("/broadcast ", "", 1)
     broadcast(text)
     bot.send_message(msg.chat.id, "✅ Hamma foydalanuvchilarga va guruhlarga xabar jo‘natildi")
 
@@ -144,8 +171,8 @@ def broadcast_photo(photo_file, caption_text=""):
 def admin_send_photo(msg):
     if not is_owner(msg):
         return
-    if msg.caption and msg.caption.startswith("broadcast "):
-        caption_text = msg.caption.replace("broadcast ", "", 1)
+    if msg.caption and msg.caption.startswith("/broadcast "):
+        caption_text = msg.caption.replace("/broadcast ", "", 1)
         file_id = msg.photo[-1].file_id
         broadcast_photo(file_id, caption_text)
         bot.send_message(msg.chat.id, "✅ Hamma foydalanuvchilarga va guruhlarga rasm + xabar jo‘natildi")
