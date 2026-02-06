@@ -72,4 +72,4 @@ def start_msg(message):
     bot.reply_to(message, "Salom! Bot ishlayapti ✅")
 
 print("Bot ishga tushdi...")
-bot.infinity_polling()
+bot.infinity_polling() 
