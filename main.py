@@ -6,7 +6,6 @@ ADMIN_ID = 6736873215
 bot = telebot.TeleBot(TOKEN)
 
 rules = {}  # so'z: javob
-users = set()  # foydalanuvchi idlari
 
 # ====== ADMIN COMMANDS ======
 @bot.message_handler(commands=['add'])
@@ -42,23 +41,9 @@ def list_rules(message):
         msg = "\n".join([f"{k} → {v}" for k,v in rules.items()])
         bot.reply_to(message, msg)
 
-# ====== BROADCAST ======
-@bot.message_handler(commands=['broadcast'])
-def broadcast(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    text = message.text.replace("/broadcast","",1).strip()
-    for user_id in users:
-        try:
-            bot.send_message(user_id, text)
-        except:
-            pass
-    bot.reply_to(message, "✅ Habar jo‘natildi")
-
 # ====== USER HANDLER ======
 @bot.message_handler(func=lambda message: True)
 def handle_msg(message):
-    users.add(message.from_user.id)
     text = message.text.lower()
     for key, reply in rules.items():
         if key in text:
@@ -68,8 +53,7 @@ def handle_msg(message):
 # ====== START ======
 @bot.message_handler(commands=['start'])
 def start_msg(message):
-    users.add(message.from_user.id)
     bot.reply_to(message, "Salom! Bot ishlayapti ✅")
 
 print("Bot ishga tushdi...")
-bot.infinity_polling() 
+bot.infinity_polling()
