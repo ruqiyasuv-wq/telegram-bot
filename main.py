@@ -3,11 +3,11 @@ import json
 import os
 
 TOKEN = "8459082198:AAFtvTHSbToKvyx-6Q1ZcCW0D943TH_Dw4Q"
-OWNER_ID = 6736873215  # sening ID'ing
+OWNER_ID = 6736873215
 
 bot = telebot.TeleBot(TOKEN)
 DATA_FILE = "data.json"
-user_state = {}  # add/del jarayoni uchun
+user_state = {}
 
 # ------------------- TRANSLIT -------------------
 latin_to_cyr = {
@@ -16,7 +16,6 @@ latin_to_cyr = {
     "r": "р","s": "с","t": "т","u": "у","v": "в","x": "х","y": "й","z": "з",
     "sh": "ш","ch": "ч","o'":"ў","g'":"ғ"
 }
-
 cyr_to_latin = {v:k for k,v in latin_to_cyr.items()}
 
 def to_cyrillic(text):
@@ -31,7 +30,7 @@ def to_latin(text):
         text = text.replace(k,v)
     return text
 
-# ------------------- MA'LUMOTLARNI SAQLASH -------------------
+# ------------------- DATA -------------------
 def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
@@ -44,11 +43,11 @@ def save_data():
 
 data = load_data()
 
-# ------------------- ADMIN TEKSHIRUV -------------------
+# ------------------- ADMIN -------------------
 def is_owner(message):
     return message.from_user.id == OWNER_ID
 
-# ------------------- ADD SO'Z -------------------
+# ------------------- ADD -------------------
 @bot.message_handler(func=lambda m: m.text == "/add" and is_owner(m))
 def add_start(message):
     user_state[message.chat.id] = {"step": "trigger"}
@@ -97,7 +96,7 @@ def delete_rule(message):
         bot.send_message(message.chat.id, "❌ Bunday so‘z yo‘q")
     user_state.pop(message.chat.id)
 
-# ------------------- FOYDALANUVCHI JAVOB -------------------
+# ------------------- USER REPLY -------------------
 @bot.message_handler(content_types=['text'])
 def user_reply(message):
     uid = message.from_user.id
@@ -114,13 +113,10 @@ def user_reply(message):
 
     text = message.text.lower()
     for trigger, reply in data["rules"].items():
-        # Kirill yoki lotin bilan moslash
         if trigger in text or to_cyrillic(trigger) in text:
             if any(c in message.text for c in "абвгдежзийклмнопрстуфхцчшщъыьэюя"):
-                # Kirill xabar → javob kirill
                 bot.reply_to(message, to_cyrillic(reply))
             else:
-                # Lotin xabar → javob lotin
                 bot.reply_to(message, reply)
             break
 
