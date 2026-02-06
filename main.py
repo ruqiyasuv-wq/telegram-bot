@@ -2,14 +2,15 @@ import telebot
 import json
 import os
 
+# ================== TOKEN & ADMIN ==================
 TOKEN = "8459082198:AAFtvTHSbToKvyx-6Q1ZcCW0D943TH_Dw4Q"
 OWNER_ID = 6736873215
 
 bot = telebot.TeleBot(TOKEN)
 DATA_FILE = "data.json"
-user_state = {}
+user_state = {}  # admin buyruqlari uchun holat
 
-# ------------------- TRANSLIT -------------------
+# ================== TRANSLITERATION ==================
 latin_to_cyr = {
     "a":"а","b":"б","d":"д","e":"е","f":"ф","g":"г","h":"ҳ","i":"и",
     "j":"ж","k":"к","l":"л","m":"м","n":"н","o":"о","p":"п","q":"қ",
@@ -30,7 +31,7 @@ def to_latin(text):
         text = text.replace(k,v)
     return text
 
-# ------------------- DATA -------------------
+# ================== DATA ==================
 def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE,"r") as f:
@@ -43,11 +44,11 @@ def save_data():
 
 data = load_data()
 
-# ------------------- ADMIN -------------------
+# ================== ADMIN CHECK ==================
 def is_owner(message):
     return message.from_user.id == OWNER_ID
 
-# ------------------- ADD -------------------
+# ================== ADD ==================
 @bot.message_handler(commands=["add"])
 def add_start(message):
     if not is_owner(message):
@@ -70,7 +71,7 @@ def add_reply(message):
     user_state.pop(message.chat.id)
     bot.send_message(message.chat.id,f"✅ Qo‘shildi:\n{trigger}")
 
-# ------------------- LIST -------------------
+# ================== LIST ==================
 @bot.message_handler(commands=["list"])
 def list_rules(message):
     if not is_owner(message):
@@ -83,7 +84,7 @@ def list_rules(message):
         msg += f"{k} → Latin: {v} | Kirill: {to_cyrillic(v)}\n"
     bot.send_message(message.chat.id,msg)
 
-# ------------------- DELETE -------------------
+# ================== DELETE ==================
 @bot.message_handler(commands=["del"])
 def del_start(message):
     if not is_owner(message):
@@ -102,7 +103,7 @@ def delete_rule(message):
         bot.send_message(message.chat.id,"❌ Bunday so‘z yo‘q")
     user_state.pop(message.chat.id)
 
-# ------------------- USER REPLY -------------------
+# ================== USER REPLY ==================
 @bot.message_handler(content_types=['text'])
 def user_reply(message):
     uid = message.from_user.id
@@ -126,7 +127,7 @@ def user_reply(message):
                 bot.reply_to(message,reply)
             break
 
-# ------------------- START -------------------
+# ================== START ==================
 @bot.message_handler(commands=["start"])
 def start(msg):
     uid = msg.from_user.id
@@ -137,7 +138,7 @@ def start(msg):
     else:
         bot.send_message(uid,"Xush kelibsiz! Oldingi sozlamalar saqlangan 🔒")
 
-# ------------------- BROADCAST TEXT -------------------
+# ================== BROADCAST TEXT ==================
 def broadcast(message_text):
     for uid in data["users"]:
         try:
@@ -158,7 +159,7 @@ def admin_broadcast(msg):
     broadcast(text)
     bot.send_message(msg.chat.id,"✅ Hamma foydalanuvchilarga va guruhlarga xabar jo‘natildi")
 
-# ------------------- BROADCAST PHOTO -------------------
+# ================== BROADCAST PHOTO ==================
 def broadcast_photo(photo_file, caption_text=""):
     for uid in data["users"]:
         try:
@@ -181,5 +182,7 @@ def admin_send_photo(msg):
         broadcast_photo(file_id,caption_text)
         bot.send_message(msg.chat.id,"✅ Hamma foydalanuvchilarga va guruhlarga rasm + xabar jo‘natildi")
 
-# ------------------- RUN -------------------
-bot.infinity_polling()
+# ================== RUN ==================
+bot.infinity_polling()@dp.message_handler(commands=['test'])
+async def test_cmd(message: types.Message):
+    await message.answer("Bot ishlayapti ✅")
