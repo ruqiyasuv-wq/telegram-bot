@@ -37,6 +37,27 @@ def log(msg):
         f.write(f"{datetime.now()} - {msg}\n")
 
 # ===========================
+# Transliteration
+def is_cyrillic(text):
+    return any("а" <= c <= "я" or "А" <= c <= "Я" for c in text)
+
+def to_kiril(text):
+    mapping = {
+        'a':'а','b':'б','d':'д','e':'е','f':'ф','g':'г','h':'х','i':'и',
+        'j':'ж','k':'к','l':'л','m':'м','n':'н','o':'о','p':'п','q':'қ',
+        'r':'р','s':'с','t':'т','u':'у','v':'в','x':'х','y':'й','z':'з'
+    }
+    return ''.join([mapping.get(c.lower(), c) for c in text])
+
+def to_latin(text):
+    mapping = {
+        'а':'a','б':'b','д':'d','е':'e','ф':'f','г':'g','х':'h','и':'i',
+        'ж':'j','к':'k','л':'l','м':'m','н':'n','о':'o','п':'p','қ':'q',
+        'р':'r','с':'s','т':'t','у':'u','в':'v','й':'y','з':'z'
+    }
+    return ''.join([mapping.get(c.lower(), c) for c in text])
+
+# ===========================
 # Admin tekshirish
 def is_owner(message):
     return message.from_user.id == OWNER_ID
@@ -109,27 +130,6 @@ def delete_rule(message):
     user_state.pop(message.chat.id)
 
 # ===========================
-# Broadcast / Habar jo‘natish
-@bot.message_handler(func=lambda m: m.text.lower() == "broadcast" and is_owner(m))
-def broadcast_start(message):
-    user_state[message.chat.id] = {"step": "broadcast"}
-    bot.send_message(message.chat.id, "📢 Jo‘natiladigan xabar matnini kiriting:")
-
-@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "broadcast")
-
-def broadcast_send(message):
-    text = message.text
-    count = 0
-    for uid in users:
-        try:
-            bot.send_message(uid, text)
-            count += 1
-        except Exception as e:
-            log(f"Broadcast xato {uid}: {e}")
-    bot.send_message(message.chat.id, f"✅ Xabar {count} foydalanuvchiga yuborildi")
-    user_state.pop(message.chat.id)
-
-# ===========================
 # Guruh va shaxsiy chatda javob
 @bot.message_handler(content_types=['text'])
 def group_reply(message):
@@ -137,7 +137,11 @@ def group_reply(message):
     text = message.text.lower()
     for trigger, reply in rules.items():
         if trigger in text:
-            bot.reply_to(message, reply)
+            # foydalanuvchi kirill yozgan bo‘lsa javob kirill, aks holda latin
+            if is_cyrillic(message.text):
+                bot.reply_to(message, to_kiril(reply))
+            else:
+                bot.reply_to(message, to_latin(reply))
             break
 
 # ===========================
