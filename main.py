@@ -3,11 +3,12 @@ import json
 import os
 
 TOKEN = "8459082198:AAFtvTHSbToKvyx-6Q1ZcCW0D943TH_Dw4Q"
-OWNER_ID = 6736873215  # <-- O'Z TELEGRAM ID'ingiz
+OWNER_ID = 6736873215
 
 bot = telebot.TeleBot(TOKEN)
 
 DATA_FILE = "data.json"
+user_state = {}  # add/del jarayoni uchun
 
 # ------------------- MA'LUMOTLARNI SAQLASH -------------------
 def load_data():
@@ -32,13 +33,13 @@ def add_start(message):
     user_state[message.chat.id] = {"step": "trigger"}
     bot.send_message(message.chat.id, "📝 So‘z yozing:")
 
-@bot.message_handler(func=lambda m: user_state.get(message.chat.id, {}).get("step") == "trigger")
+@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "trigger")
 def add_trigger(message):
     user_state[message.chat.id]["trigger"] = message.text.lower()
     user_state[message.chat.id]["step"] = "reply"
     bot.send_message(message.chat.id, "💬 Javob yozing:")
 
-@bot.message_handler(func=lambda m: user_state.get(message.chat.id, {}).get("step") == "reply")
+@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "reply")
 def add_reply(message):
     trigger = user_state[message.chat.id]["trigger"]
     data["rules"][trigger] = message.text
@@ -63,7 +64,7 @@ def del_start(message):
     user_state[message.chat.id] = {"step": "delete"}
     bot.send_message(message.chat.id, "❌ Qaysi so‘zni o‘chiramiz?")
 
-@bot.message_handler(func=lambda m: user_state.get(message.chat.id, {}).get("step") == "delete")
+@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "delete")
 def delete_rule(message):
     key = message.text.lower()
     if key in data["rules"]:
@@ -76,10 +77,11 @@ def delete_rule(message):
 
 # ------------------- FOYDALANUVCHI JAVOB -------------------
 @bot.message_handler(content_types=['text'])
-def group_reply(message):
-    # Foydalanuvchi ID / guruh ID saqlash
+def user_reply(message):
     uid = message.from_user.id
     chat_id = message.chat.id
+
+    # Foydalanuvchi va guruh ID saqlash
     if uid not in data["users"]:
         data["users"].append(uid)
         save_data()
@@ -147,9 +149,6 @@ def admin_send_photo(msg):
         file_id = msg.photo[-1].file_id
         broadcast_photo(file_id, caption_text)
         bot.send_message(msg.chat.id, "✅ Hamma foydalanuvchilarga va guruhlarga rasm + xabar jo‘natildi")
-
-# ------------------- USER STATE -------------------
-user_state = {}  # Qoida qo‘shish va o‘chirish jarayoni uchun
 
 # ------------------- RUN -------------------
 bot.infinity_polling()
