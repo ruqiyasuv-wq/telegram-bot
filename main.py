@@ -1,191 +1,179 @@
 import telebot
-from telebot import types
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import json
 import os
 
 TOKEN = "8459082198:AAFtvTHSbToKvyx-6Q1ZcCW0D943TH_Dw4Q"
-OWNER_ID = 6736873215
-MIN_SUMMA = 20000  # minimal summa
+ADMIN_ID = 6736873215
 
-bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
+DATA_FILE = "data.json"
+IMAGE_FILE_ID = None  # bitta rasm file_id sini keyin admin yuboradi
 
-PRODUCTS_FILE = "products.json"
-USERS_FILE = "users.json"
+bot = telebot.TeleBot(TOKEN)
 
-# User state va carts
-user_state = {}
-carts = {}
-
-# JSON load/save
-def load_json(file, default):
-    if not os.path.exists(file):
-        with open(file, "w") as f:
-            json.dump(default, f)
-    with open(file, "r") as f:
-        return json.load(f)
-
-def save_json(file, data):
-    with open(file, "w") as f:
-        json.dump(data, f, indent=2)
-
-products = load_json(PRODUCTS_FILE, {})
-users = load_json(USERS_FILE, {})
-
-def is_owner(m):
-    return m.from_user.id == OWNER_ID
-
-def save_user(uid):
-    users[str(uid)] = True
-    save_json(USERS_FILE, users)
-
-# ================= START =================
-@bot.message_handler(commands=["start"])
-def start(m):
-    save_user(m.from_user.id)
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add("🛒 Buyurtma berish")
-    bot.send_message(m.chat.id, "Assalomu alaykum! Buyurtma berish uchun tugmani bosing 👇", reply_markup=kb)
-
-# ================= ADMIN ADD PRODUCT =================
-@bot.message_handler(func=lambda m: m.text == "addproduct" and is_owner(m))
-def add_product_start(m):
-    user_state[m.chat.id] = {"step": "photo"}
-    bot.send_message(m.chat.id, "📸 Mahsulot rasmini yuboring")
-
-@bot.message_handler(content_types=["photo"])
-def get_photo(m):
-    st = user_state.get(m.chat.id)
-    if not st or st.get("step") != "photo":
-        return
-    st["photo"] = m.photo[-1].file_id
-    st["step"] = "name"
-    bot.send_message(m.chat.id, "📝 Mahsulot nomini yozing")
-
-@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "name")
-def get_name(m):
-    user_state[m.chat.id]["name"] = m.text
-    user_state[m.chat.id]["step"] = "price"
-    bot.send_message(m.chat.id, "💰 Narxini yozing (faqat son)")
-
-@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "price")
-def get_price(m):
-    try:
-        price = int(m.text)
-    except:
-        bot.send_message(m.chat.id, "❌ Narx son bo‘lishi kerak")
-        return
-    st = user_state.pop(m.chat.id)
-    products[st["name"]] = {
-        "price": price,
-        "photo": st["photo"]
+# -------------------- SAQLASH --------------------
+def load_data():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    return {
+        "products": {},
+        "users": [],
+        "min_sum": 50000
     }
-    save_json(PRODUCTS_FILE, products)
-    bot.send_message(m.chat.id, f"✅ Mahsulot qo‘shildi:\n<b>{st['name']}</b>")
 
-# ================= BUY ORDER =================
-@bot.message_handler(func=lambda m: m.text == "🛒 Buyurtma berish")
-def order(m):
-    if m.chat.type != "private":
+def save_data():
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=4)
+
+data = load_data()
+
+# -------------------- YORDAMCHI --------------------
+def is_admin(uid):
+    return uid == ADMIN_ID
+
+def add_user(uid):
+    if uid not in data["users"]:
+        data["users"].append(uid)
+        save_data()
+
+# -------------------- START --------------------
+@bot.message_handler(commands=["start"])
+def start(msg):
+    if msg.chat.type != "private":
         return
-    if not products:
-        bot.send_message(m.chat.id, "❌ Mahsulotlar yo‘q")
+    add_user(msg.from_user.id)
+
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("🛒 Buyurtma berish", callback_data="order"))
+
+    bot.send_message(
+        msg.chat.id,
+        "Assalomu alaykum!\nBuyurtma berish uchun tugmani bosing 👇",
+        reply_markup=kb
+    )
+
+# -------------------- ADMIN: MIN SUMMA --------------------
+@bot.message_handler(commands=["minsum"])
+def set_min_sum(msg):
+    if not is_admin(msg.from_user.id):
         return
-    carts[m.chat.id] = {name:0 for name in products.keys()}
-    # Bitta rasm tagida barcha mahsulot
-    first_prod = list(products.keys())[0]
-    show_cart(m.chat.id, products[first_prod]["photo"])
+    try:
+        data["min_sum"] = int(msg.text.split()[1])
+        save_data()
+        bot.reply_to(msg, f"✅ Minimal summa: {data['min_sum']} so‘m")
+    except:
+        bot.reply_to(msg, "❌ Misol: /minsum 50000")
 
-def show_cart(chat_id, photo_id):
-    cart = carts[chat_id]
-    caption = "🛒 Buyurtma\n\n"
-    total = 0
-    for name, count in cart.items():
-        price = products[name]["price"]
-        subtotal = price * count
-        total += subtotal
-        caption += f"{name} — {count} dona\n"
-    caption += f"\nJami: {total} so‘m"
+# -------------------- ADMIN: RASM --------------------
+@bot.message_handler(content_types=["photo"])
+def set_image(msg):
+    global IMAGE_FILE_ID
+    if not is_admin(msg.from_user.id):
+        return
+    IMAGE_FILE_ID = msg.photo[-1].file_id
+    bot.reply_to(msg, "✅ Buyurtma uchun rasm saqlandi")
 
-    kb = types.InlineKeyboardMarkup()
-    # Har bir mahsulot uchun +/-
-    row = []
-    for name in cart.keys():
-        kb.row(
-            types.InlineKeyboardButton(f"➕ {name}", callback_data=f"plus|{name}"),
-            types.InlineKeyboardButton(f"➖ {name}", callback_data=f"minus|{name}")
-        )
-    kb.add(types.InlineKeyboardButton("🧹 Tozalash", callback_data="clear"))
-    kb.add(types.InlineKeyboardButton("✅ Buyurtma berish", callback_data="done"))
+# -------------------- ADMIN: ADD PRODUCT --------------------
+@bot.message_handler(commands=["add"])
+def add_product(msg):
+    if not is_admin(msg.from_user.id):
+        return
+    bot.reply_to(msg, "📝 Mahsulot nomini yozing:")
+    bot.register_next_step_handler(msg, add_product_name)
 
-    # Agar xabar oldin bor bo'lsa edit qiling, yo'q bo'lsa send
-    if "msg_id" in carts[chat_id]:
-        try:
-            bot.edit_message_caption(caption, chat_id, carts[chat_id]["msg_id"], reply_markup=kb)
-        except:
-            m = bot.send_photo(chat_id, photo_id, caption=caption, reply_markup=kb)
-            carts[chat_id]["msg_id"] = m.message_id
+def add_product_name(msg):
+    name = msg.text
+    bot.send_message(msg.chat.id, "💰 Narxini yozing:")
+    bot.register_next_step_handler(msg, add_product_price, name)
+
+def add_product_price(msg, name):
+    try:
+        price = int(msg.text)
+        data["products"][name] = price
+        save_data()
+        bot.send_message(msg.chat.id, f"✅ Qo‘shildi:\n{name} — {price} so‘m")
+    except:
+        bot.send_message(msg.chat.id, "❌ Narx faqat son bo‘lsin")
+
+# -------------------- ADMIN: DELETE PRODUCT --------------------
+@bot.message_handler(commands=["del"])
+def delete_product(msg):
+    if not is_admin(msg.from_user.id):
+        return
+
+    kb = InlineKeyboardMarkup()
+    for name in data["products"]:
+        kb.add(InlineKeyboardButton(name, callback_data=f"del:{name}"))
+
+    bot.send_message(msg.chat.id, "🗑 O‘chirish uchun tanlang:", reply_markup=kb)
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("del:"))
+def del_prod(c):
+    name = c.data.split(":")[1]
+    if name in data["products"]:
+        del data["products"][name]
+        save_data()
+        bot.answer_callback_query(c.id, "❌ O‘chirildi")
+        bot.edit_message_text("✅ Mahsulot o‘chirildi", c.message.chat.id, c.message.message_id)
+
+# -------------------- BUYURTMA --------------------
+user_cart = {}
+
+@bot.callback_query_handler(func=lambda c: c.data == "order")
+def order_menu(c):
+    uid = c.from_user.id
+    user_cart[uid] = {}
+
+    kb = InlineKeyboardMarkup(row_width=1)
+    for name in data["products"]:
+        kb.add(InlineKeyboardButton(name, callback_data=f"add:{name}"))
+
+    kb.add(
+        InlineKeyboardButton("🧹 Tozalash", callback_data="clear"),
+        InlineKeyboardButton("✅ Buyurtma berish", callback_data="confirm")
+    )
+
+    caption = "🛒 Mahsulotni tanlang (bosgan sari ko‘payadi):"
+    if IMAGE_FILE_ID:
+        bot.send_photo(c.message.chat.id, IMAGE_FILE_ID, caption=caption, reply_markup=kb)
     else:
-        m = bot.send_photo(chat_id, photo_id, caption=caption, reply_markup=kb)
-        carts[chat_id]["msg_id"] = m.message_id
+        bot.send_message(c.message.chat.id, caption, reply_markup=kb)
 
-# ================= CALLBACK =================
-@bot.callback_query_handler(func=lambda c: True)
-def callbacks(c):
-    chat_id = c.message.chat.id
-    if chat_id not in carts:
+@bot.callback_query_handler(func=lambda c: c.data.startswith("add:"))
+def add_to_cart(c):
+    uid = c.from_user.id
+    name = c.data.split(":")[1]
+    user_cart.setdefault(uid, {})
+    user_cart[uid][name] = user_cart[uid].get(name, 0) + 1
+    bot.answer_callback_query(c.id, f"{name}: {user_cart[uid][name]} ta")
+
+@bot.callback_query_handler(func=lambda c: c.data == "clear")
+def clear_cart(c):
+    user_cart[c.from_user.id] = {}
+    bot.answer_callback_query(c.id, "🧹 Tozalandi")
+
+@bot.callback_query_handler(func=lambda c: c.data == "confirm")
+def confirm_order(c):
+    uid = c.from_user.id
+    cart = user_cart.get(uid, {})
+
+    total = sum(data["products"][n] * q for n, q in cart.items())
+    if total < data["min_sum"]:
+        bot.answer_callback_query(
+            c.id,
+            f"❌ Buyurtma kam\nMinimal: {data['min_sum']} so‘m",
+            show_alert=True
+        )
         return
-    cart = carts[chat_id]
-    if c.data.startswith("plus|"):
-        name = c.data.split("|")[1]
-        cart[name] += 1
-    elif c.data.startswith("minus|"):
-        name = c.data.split("|")[1]
-        cart[name] = max(0, cart[name]-1)
-    elif c.data == "clear":
-        for k in cart.keys():
-            cart[k]=0
-    elif c.data == "done":
-        total = sum(products[name]["price"]*count for name,count in cart.items())
-        if total < MIN_SUMMA:
-            bot.answer_callback_query(c.id, "❌ Buyurtma miqdori kam", show_alert=True)
-            return
-        user_state[chat_id] = {"step":"phone"}
-        bot.send_message(chat_id, "📞 Telefon raqamingizni yozing (to‘liq 998901234567)")
-        return
-    first_prod = list(products.keys())[0]
-    show_cart(chat_id, products[first_prod]["photo"])
-    bot.answer_callback_query(c.id)
 
-# ================= PHONE / REGION / ADDRESS =================
-@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step")=="phone")
-def get_phone(m):
-    if not m.text.isdigit() or len(m.text)!=12 or not m.text.startswith("998"):
-        bot.send_message(m.chat.id, "❌ Telefon raqam noto‘g‘ri. Misol: 998901234567")
-        return
-    user_state[m.chat.id]["phone"]=m.text
-    user_state[m.chat.id]["step"]="region"
-    bot.send_message(m.chat.id, "📍 Viloyatni yozing")
+    text = "📦 YANGI BUYURTMA:\n\n"
+    for n, q in cart.items():
+        text += f"{n} x {q} = {data['products'][n]*q} so‘m\n"
+    text += f"\n💰 Jami: {total} so‘m\n👤 ID: {uid}"
 
-@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step")=="region")
-def get_region(m):
-    user_state[m.chat.id]["region"]=m.text
-    user_state[m.chat.id]["step"]="address"
-    bot.send_message(m.chat.id, "🏠 Manzilni yozing")
+    bot.send_message(ADMIN_ID, text)
+    bot.edit_message_text("✅ Buyurtma yuborildi. Rahmat!", c.message.chat.id, c.message.message_id)
 
-@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step")=="address")
-def get_address(m):
-    chat_id = m.chat.id
-    st = user_state.pop(chat_id)
-    cart = carts.pop(chat_id)
-    total = sum(products[name]["price"]*count for name,count in cart.items())
-    msg = "🆕 <b>Yangi buyurtma</b>\n\n"
-    for name,count in cart.items():
-        if count>0:
-            subtotal = products[name]["price"]*count
-            msg += f"{name} — {count} dona → {subtotal} so‘m\n"
-    msg += f"\n📞 Telefon: {st['phone']}\n📍 Manzil: {st['region']} – {m.text}\n"
-    msg += f"\nJami: {total} so‘m"
-    bot.send_message(OWNER_ID, msg)
-    bot.send_message(chat_id, "✅ Buyurtmangiz qabul qilindi. Rahmat!")
-
+# -------------------- RUN --------------------
 bot.infinity_polling()
