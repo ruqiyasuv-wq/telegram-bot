@@ -141,6 +141,37 @@ def delete_rule(message):
     user_state.pop(message.chat.id)
 
 # ===========================
+# Broadcast / Rasmli va matnli xabar
+@bot.message_handler(func=lambda m: m.text.lower() == "broadcast" and is_owner(m))
+def broadcast_start(message):
+    user_state[message.chat.id] = {"step": "broadcast"}
+    bot.send_message(message.chat.id, "📢 Jo‘natiladigan xabar matnini kiriting yoki rasm yuboring:")
+
+@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "broadcast",
+                     content_types=['text', 'photo'])
+def broadcast_send(message):
+    count = 0
+    if message.content_type == 'text':
+        text = message.text
+        for uid in users:
+            try:
+                bot.send_message(uid, text)
+                count += 1
+            except Exception as e:
+                log(f"Broadcast xato {uid}: {e}")
+    elif message.content_type == 'photo':
+        file_id = message.photo[-1].file_id
+        caption = message.caption or ""
+        for uid in users:
+            try:
+                bot.send_photo(uid, file_id, caption=caption)
+                count += 1
+            except Exception as e:
+                log(f"Broadcast rasm xato {uid}: {e}")
+    bot.send_message(message.chat.id, f"✅ Xabar {count} foydalanuvchiga yuborildi")
+    user_state.pop(message.chat.id)
+
+# ===========================
 # Guruh va shaxsiy chatda javob
 @bot.message_handler(content_types=['text'])
 def group_reply(message):
