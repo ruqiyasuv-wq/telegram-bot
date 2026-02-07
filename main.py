@@ -56,10 +56,12 @@ def is_owner(message):
 # ===========================
 # Transliteration
 LATIN_TO_KIRIL = str.maketrans(
-    "abdefghijklmnopqrstuvxyzqwc", "абдефгхийклмнопрстувзқвч"
+    "abvgdezijklmnoprstufhcyqwx",
+    "абвгдезийклмнопрстуфхцйқвш"
 )
 KIRIL_TO_LATIN = str.maketrans(
-    "абдефгхийклмнопрстувзқвч", "abdefghijklmnopqrstuvxyzqwc"
+    "абвгдезийклмнопрстуфхцйқвш",
+    "abvgdezijklmnoprstufhcyqwx"
 )
 
 def to_kiril(text):
@@ -136,7 +138,7 @@ def delete_rule(message):
     user_state.pop(message.chat.id)
 
 # ===========================
-# BROADCAST (matnli)
+# BROADCAST (matn)
 @bot.message_handler(commands=['broadcast'])
 def broadcast_text(message):
     if not is_owner(message):
@@ -189,7 +191,11 @@ def reply_message(message):
     text = message.text.lower()
     for trigger, reply in rules.items():
         if trigger in text:
-            bot.reply_to(message, reply, disable_web_page_preview=True)
+            # Kiril-latin javob
+            if is_cyrillic(message.text):
+                bot.reply_to(message, reply)
+            else:
+                bot.reply_to(message, reply)
             break
 
 # ===========================
