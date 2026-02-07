@@ -5,8 +5,8 @@ from datetime import datetime
 
 # ===========================
 # CONFIG
-TOKEN = "8459082198:AAFtvTHSbToKvyx-6Q1ZcCW0D943TH_Dw4Q"
-OWNER_ID = 6736873215
+TOKEN = "8459082198:AAFtvTHSbToKvyx-6Q1ZcCW0D943TH_Dw4Q"  # Sizning tokeningiz
+OWNER_ID = 6736873215  # Sizning ID
 RULES_FILE = "rules.json"
 USERS_FILE = "users.json"
 LOG_FILE = "bot.log"
@@ -55,19 +55,18 @@ def is_owner(message):
 
 # ===========================
 # Transliteration
-CYRILLIC_MAP = str.maketrans(
-    "abdefghijklmnopqrstuvxyz", "абдефгхийклмнопрстувз"
+LATIN_TO_KIRIL = str.maketrans(
+    "abdefghijklmnopqrstuvxyzqwc", "абдефгхийклмнопрстувзқвч"
 )
-
-LATIN_MAP = str.maketrans(
-    "абдефгхийклмнопрстувз", "abdefghijklmnopqrstuvxyz"
+KIRIL_TO_LATIN = str.maketrans(
+    "абдефгхийклмнопрстувзқвч", "abdefghijklmnopqrstuvxyzqwc"
 )
 
 def to_kiril(text):
-    return text.translate(CYRILLIC_MAP)
+    return text.translate(LATIN_TO_KIRIL)
 
 def to_latin(text):
-    return text.translate(LATIN_MAP)
+    return text.translate(KIRIL_TO_LATIN)
 
 def is_cyrillic(text):
     return any("а" <= c <= "я" or "А" <= c <= "Я" for c in text)
@@ -190,12 +189,9 @@ def reply_message(message):
     text = message.text.lower()
     for trigger, reply in rules.items():
         if trigger in text:
-            if is_cyrillic(message.text):
-                bot.reply_to(message, reply, disable_web_page_preview=True)
-            else:
-                bot.reply_to(message, reply, disable_web_page_preview=True)
+            bot.reply_to(message, reply, disable_web_page_preview=True)
             break
 
 # ===========================
 print("Bot ishlayapti...")
-bot.infinity_polling() 
+bot.infinity_polling()
