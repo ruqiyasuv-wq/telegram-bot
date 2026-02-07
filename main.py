@@ -54,10 +54,29 @@ def is_owner(message):
     return message.from_user.id == OWNER_ID
 
 # ===========================
+# Transliteration
+CYRILLIC_MAP = str.maketrans(
+    "abdefghijklmnopqrstuvxyz", "абдефгхийклмнопрстувз"
+)
+
+LATIN_MAP = str.maketrans(
+    "абдефгхийклмнопрстувз", "abdefghijklmnopqrstuvxyz"
+)
+
+def to_kiril(text):
+    return text.translate(CYRILLIC_MAP)
+
+def to_latin(text):
+    return text.translate(LATIN_MAP)
+
+def is_cyrillic(text):
+    return any("а" <= c <= "я" or "А" <= c <= "Я" for c in text)
+
+# ===========================
 # ADD SYSTEM
 user_state = {}
 
-@bot.message_handler(func=lambda m: m.text == "add" and is_owner(m))
+@bot.message_handler(func=lambda m: m.text.lower() == "add" and is_owner(m))
 def add_start(message):
     user_state[message.chat.id] = {"step": "trigger"}
     bot.send_message(message.chat.id, "📝 So‘z yozing:")
@@ -65,10 +84,8 @@ def add_start(message):
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "trigger")
 def add_trigger(message):
     trigger = message.text.lower()
-    # Lotin va Kiril shaklida saqlash
-    trigger_kiril = trigger.translate(str.maketrans(
-        "abdefghijklmnopqrstuvxyz", "абдефгхийклмнопрстувз"))
-    trigger_latin = trigger  # asl trigger
+    trigger_kiril = to_kiril(trigger)
+    trigger_latin = to_latin(trigger)
     user_state[message.chat.id]["trigger"] = {"latin": trigger_latin, "kiril": trigger_kiril}
     user_state[message.chat.id]["step"] = "reply"
     bot.send_message(message.chat.id, "💬 Javob yozing:")
@@ -87,7 +104,7 @@ def add_reply(message):
 
 # ===========================
 # LIST
-@bot.message_handler(func=lambda m: m.text == "list" and is_owner(m))
+@bot.message_handler(func=lambda m: m.text.lower() == "list" and is_owner(m))
 def list_rules(message):
     if not rules:
         bot.send_message(message.chat.id, "📭 Qoida yo‘q")
@@ -99,7 +116,7 @@ def list_rules(message):
 
 # ===========================
 # DELETE
-@bot.message_handler(func=lambda m: m.text == "del" and is_owner(m))
+@bot.message_handler(func=lambda m: m.text.lower() == "del" and is_owner(m))
 def del_start(message):
     user_state[message.chat.id] = {"step": "delete"}
     bot.send_message(message.chat.id, "❌ Qaysi so‘zni o‘chiramiz?")
@@ -108,8 +125,7 @@ def del_start(message):
 def delete_rule(message):
     key = message.text.lower()
     deleted = False
-    for t in [key, key.translate(str.maketrans(
-        "abdefghijklmnopqrstuvxyz", "абдефгхийклмнопрстувз"))]:
+    for t in [key, to_kiril(key), to_latin(key)]:
         if t in rules:
             del rules[t]
             deleted = True
@@ -121,7 +137,7 @@ def delete_rule(message):
     user_state.pop(message.chat.id)
 
 # ===========================
-# BROADCAST TEXT / PHOTO
+# BROADCAST (matnli)
 @bot.message_handler(commands=['broadcast'])
 def broadcast_text(message):
     if not is_owner(message):
@@ -133,12 +149,14 @@ def broadcast_text(message):
     count = 0
     for user_id in users:
         try:
-            bot.send_message(user_id, text)
+            bot.send_message(user_id, text, disable_web_page_preview=True)
             count += 1
-        except:
-            pass
+        except Exception as e:
+            log(f"Broadcast error {user_id}: {e}")
     bot.send_message(message.chat.id, f"✅ Yuborildi: {count} ta")
 
+# ===========================
+# BROADCAST (photo)
 @bot.message_handler(content_types=['photo'])
 def broadcast_photo(message):
     if not is_owner(message):
@@ -151,13 +169,13 @@ def broadcast_photo(message):
             try:
                 bot.send_photo(user_id, file_id, caption=caption)
                 count += 1
-            except:
-                pass
+            except Exception as e:
+                log(f"Broadcast photo error {user_id}: {e}")
         bot.send_message(message.chat.id, f"🖼 Rasm yuborildi: {count} ta")
 
 # ===========================
 # STAT
-@bot.message_handler(func=lambda m: m.text == "stats" and is_owner(m))
+@bot.message_handler(func=lambda m: m.text.lower() == "stats" and is_owner(m))
 def stats(message):
     total_users = len(users)
     total_messages = sum(u["messages"] for u in users.values())
@@ -172,9 +190,12 @@ def reply_message(message):
     text = message.text.lower()
     for trigger, reply in rules.items():
         if trigger in text:
-            bot.reply_to(message, reply)
+            if is_cyrillic(message.text):
+                bot.reply_to(message, reply, disable_web_page_preview=True)
+            else:
+                bot.reply_to(message, reply, disable_web_page_preview=True)
             break
 
 # ===========================
 print("Bot ishlayapti...")
-bot.infinity_polling() 
+bot.infinity_polling()
