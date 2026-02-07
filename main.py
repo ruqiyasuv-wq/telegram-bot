@@ -5,7 +5,7 @@ from datetime import datetime
 
 # ===========================
 # CONFIG
-TOKEN = "TOKENINGIZNI_BU_YERGA_QOYING"
+TOKEN = "8459082198:AAFtvTHSbToKvyx-6Q1ZcCW0D943TH_Dw4Q"
 OWNER_ID = 6736873215
 RULES_FILE = "rules.json"
 USERS_FILE = "users.json"
