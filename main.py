@@ -39,14 +39,12 @@ def log(msg):
 # USER saqlash
 def save_user(message):
     user_id = str(message.chat.id)
-
     if user_id not in users:
         users[user_id] = {
             "username": message.from_user.username or "",
             "first_name": message.from_user.first_name or "",
             "messages": 0
         }
-
     users[user_id]["messages"] += 1
     save_json(USERS_FILE, users)
 
@@ -67,20 +65,25 @@ def add_start(message):
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "trigger")
 def add_trigger(message):
     trigger = message.text.lower()
-    user_state[message.chat.id]["trigger"] = trigger
+    # Lotin va Kiril shaklida saqlash
+    trigger_kiril = trigger.translate(str.maketrans(
+        "abdefghijklmnopqrstuvxyz", "абдефгхийклмнопрстувз"))
+    trigger_latin = trigger  # asl trigger
+    user_state[message.chat.id]["trigger"] = {"latin": trigger_latin, "kiril": trigger_kiril}
     user_state[message.chat.id]["step"] = "reply"
     bot.send_message(message.chat.id, "💬 Javob yozing:")
 
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "reply")
 def add_reply(message):
-    trigger = user_state[message.chat.id]["trigger"]
+    triggers = user_state[message.chat.id]["trigger"]
     reply = message.text
 
-    rules[trigger] = reply
+    rules[triggers["latin"]] = reply
+    rules[triggers["kiril"]] = reply
     save_json(RULES_FILE, rules)
 
     user_state.pop(message.chat.id)
-    bot.send_message(message.chat.id, f"✅ Qo‘shildi: {trigger}")
+    bot.send_message(message.chat.id, f"✅ Qo‘shildi:\n{triggers['latin']} | {triggers['kiril']}")
 
 # ===========================
 # LIST
@@ -89,11 +92,9 @@ def list_rules(message):
     if not rules:
         bot.send_message(message.chat.id, "📭 Qoida yo‘q")
         return
-
     msg = "📋 So‘zlar:\n"
     for k in rules:
         msg += f"- {k}\n"
-
     bot.send_message(message.chat.id, msg)
 
 # ===========================
@@ -106,60 +107,52 @@ def del_start(message):
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "delete")
 def delete_rule(message):
     key = message.text.lower()
-
-    if key in rules:
-        del rules[key]
-        save_json(RULES_FILE, rules)
-        bot.send_message(message.chat.id, "🗑 O‘chirildi")
+    deleted = False
+    for t in [key, key.translate(str.maketrans(
+        "abdefghijklmnopqrstuvxyz", "абдефгхийклмнопрстувз"))]:
+        if t in rules:
+            del rules[t]
+            deleted = True
+    save_json(RULES_FILE, rules)
+    if deleted:
+        bot.send_message(message.chat.id, f"🗑 O‘chirildi: {key}")
     else:
         bot.send_message(message.chat.id, "❌ Topilmadi")
-
     user_state.pop(message.chat.id)
 
 # ===========================
-# BROADCAST TEXT
+# BROADCAST TEXT / PHOTO
 @bot.message_handler(commands=['broadcast'])
 def broadcast_text(message):
     if not is_owner(message):
         return
-
     text = message.text.replace("/broadcast", "").strip()
-
     if not text:
-        bot.send_message(message.chat.id, "Matn yozing:\n/broadcast xabar")
+        bot.send_message(message.chat.id, "Matn yozing:\n/broadcast Xabar")
         return
-
     count = 0
-
     for user_id in users:
         try:
             bot.send_message(user_id, text)
             count += 1
         except:
             pass
-
     bot.send_message(message.chat.id, f"✅ Yuborildi: {count} ta")
 
-# ===========================
-# BROADCAST PHOTO
 @bot.message_handler(content_types=['photo'])
 def broadcast_photo(message):
     if not is_owner(message):
         return
-
     if message.caption and message.caption.startswith("/broadcastphoto"):
         caption = message.caption.replace("/broadcastphoto", "").strip()
         file_id = message.photo[-1].file_id
-
         count = 0
-
         for user_id in users:
             try:
                 bot.send_photo(user_id, file_id, caption=caption)
                 count += 1
             except:
                 pass
-
         bot.send_message(message.chat.id, f"🖼 Rasm yuborildi: {count} ta")
 
 # ===========================
@@ -168,20 +161,15 @@ def broadcast_photo(message):
 def stats(message):
     total_users = len(users)
     total_messages = sum(u["messages"] for u in users.values())
-
-    bot.send_message(
-        message.chat.id,
-        f"📊 Statistika:\nFoydalanuvchilar: {total_users}\nXabarlar: {total_messages}\nSo‘zlar: {len(rules)}"
-    )
+    bot.send_message(message.chat.id,
+        f"📊 Statistika:\nFoydalanuvchilar: {total_users}\nXabarlar: {total_messages}\nSo‘zlar: {len(rules)}")
 
 # ===========================
 # JAVOB BERISH
 @bot.message_handler(content_types=['text'])
 def reply_message(message):
     save_user(message)
-
     text = message.text.lower()
-
     for trigger, reply in rules.items():
         if trigger in text:
             bot.reply_to(message, reply)
